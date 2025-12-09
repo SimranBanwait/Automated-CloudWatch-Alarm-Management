@@ -33,19 +33,48 @@ get_threshold() {
 # AWS Fetching
 # =====================================================================
 
+# get_sqs_queues() {
+#     aws sqs list-queues \
+#         --region "$AWS_REGION" \
+#         --query 'QueueUrls' \
+#         --output text 2>/dev/null
+# }
+
+# get_cloudwatch_alarms() {
+#     aws cloudwatch describe-alarms \
+#         --region "$AWS_REGION" \
+#         --query "MetricAlarms[?contains(AlarmName,'${ALARM_SUFFIX}')].AlarmName" \
+#         --output text 2>/dev/null
+# }
+
+# =====================================================================
+# AWS Fetching (Patched)
+# =====================================================================
+
 get_sqs_queues() {
-    aws sqs list-queues \
+    local output
+    if ! output=$(aws sqs list-queues \
         --region "$AWS_REGION" \
         --query 'QueueUrls' \
-        --output text 2>/dev/null
+        --output text 2>/dev/null); then
+        log "No SQS queues found or permission missing."
+        output=""
+    fi
+    echo "$output"
 }
 
 get_cloudwatch_alarms() {
-    aws cloudwatch describe-alarms \
+    local output
+    if ! output=$(aws cloudwatch describe-alarms \
         --region "$AWS_REGION" \
         --query "MetricAlarms[?contains(AlarmName,'${ALARM_SUFFIX}')].AlarmName" \
-        --output text 2>/dev/null
+        --output text 2>/dev/null); then
+        log "No CloudWatch alarms found or permission missing."
+        output=""
+    fi
+    echo "$output"
 }
+
 
 # =====================================================================
 # Alarm Management
