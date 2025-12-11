@@ -67,14 +67,20 @@ main() {
     declare -A queue_map
     declare -A alarm_map
     
-    for url in $queues; do
-        q=$(extract_queue_name "$url")
-        queue_map["$q"]=1
-    done
+    # Populate queue map
+    if [ -n "$queues" ]; then
+        for url in $queues; do
+            q=$(extract_queue_name "$url")
+            queue_map["$q"]=1
+        done
+    fi
     
-    for alarm in $alarms; do
-        alarm_map["$alarm"]=1
-    done
+    # Populate alarm map
+    if [ -n "$alarms" ]; then
+        for alarm in $alarms; do
+            alarm_map["$alarm"]=1
+        done
+    fi
     
     # Prepare plan file
     > plan.txt  # Clear file
@@ -88,28 +94,32 @@ main() {
     log ""
     log "Analyzing differences..."
     
-    # Find alarms to create
-    for q in "${!queue_map[@]}"; do
-        expected_alarm="${q}${ALARM_SUFFIX}"
-        if [[ -z "${alarm_map[$expected_alarm]:-}" ]]; then
-            threshold=$(get_threshold "$q")
-            echo "$q|$expected_alarm|$threshold" >> plan.txt
-            log "  [CREATE] $expected_alarm (threshold: $threshold)"
-            ((create_count++))
-        fi
-    done
+    # Find alarms to create (only if we have queues)
+    if [ ${#queue_map[@]} -gt 0 ]; then
+        for q in "${!queue_map[@]}"; do
+            expected_alarm="${q}${ALARM_SUFFIX}"
+            if [[ -z "${alarm_map[$expected_alarm]:-}" ]]; then
+                threshold=$(get_threshold "$q")
+                echo "$q|$expected_alarm|$threshold" >> plan.txt
+                log "  [CREATE] $expected_alarm (threshold: $threshold)"
+                ((create_count++))
+            fi
+        done
+    fi
     
     echo "---DELETE---" >> plan.txt
     
-    # Find alarms to delete
-    for alarm in "${!alarm_map[@]}"; do
-        queue="${alarm%$ALARM_SUFFIX}"
-        if [[ -z "${queue_map[$queue]:-}" ]]; then
-            echo "$alarm" >> plan.txt
-            log "  [DELETE] $alarm (orphaned)"
-            ((delete_count++))
-        fi
-    done
+    # Find alarms to delete (only if we have alarms)
+    if [ ${#alarm_map[@]} -gt 0 ]; then
+        for alarm in "${!alarm_map[@]}"; do
+            queue="${alarm%$ALARM_SUFFIX}"
+            if [[ -z "${queue_map[$queue]:-}" ]]; then
+                echo "$alarm" >> plan.txt
+                log "  [DELETE] $alarm (orphaned)"
+                ((delete_count++))
+            fi
+        done
+    fi
     
     echo "---SUMMARY---" >> plan.txt
     echo "CREATE_COUNT=$create_count" >> plan.txt
@@ -129,6 +139,9 @@ main() {
     echo "=== PLAN CONTENTS ==="
     cat plan.txt
     echo "=== END PLAN ==="
+    
+    # Exit successfully even if no changes needed
+    exit 0
 }
 
 main
