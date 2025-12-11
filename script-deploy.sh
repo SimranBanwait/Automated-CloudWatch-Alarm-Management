@@ -4,8 +4,9 @@ set -euo pipefail
 # =====================================================================
 # Deploy Script - Deploy Stage
 # This script executes the plan created in the build stage
-# Reads: plan.json
+# Reads: plan.txt
 # Actions: Creates and deletes CloudWatch alarms
+# NO EXTERNAL DEPENDENCIES - Pure bash only
 # =====================================================================
 
 SNS_TOPIC_ARN="${SNS_TOPIC_ARN:-arn:aws:sns:us-east-1:860265990835:Alternative-Monitoring-Setup-SNS-Topic}"
@@ -17,19 +18,31 @@ log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"; }
 # Load Plan
 # =====================================================================
 
-if [[ ! -f plan.json ]]; then
-    log "ERROR: plan.json not found!"
+if [[ ! -f plan.txt ]]; then
+    log "ERROR: plan.txt not found!"
     log "Make sure the Build stage completed successfully."
     exit 1
 fi
 
 log "Loading deployment plan..."
-PLAN=$(cat plan.json)
 
-AWS_REGION=$(echo "$PLAN" | jq -r '.region')
-ALARM_SUFFIX=$(echo "$PLAN" | jq -r '.alarm_suffix')
-CREATE_COUNT=$(echo "$PLAN" | jq -r '.summary.to_create')
-DELETE_COUNT=$(echo "$PLAN" | jq -r '.summary.to_delete')
+# Parse plan.txt
+AWS_REGION=""
+ALARM_SUFFIX=""
+CREATE_COUNT=0
+DELETE_COUNT=0
+
+while IFS= read -r line; do
+    if [[ "$line" == REGION=* ]]; then
+        AWS_REGION="${line#REGION=}"
+    elif [[ "$line" == ALARM_SUFFIX=* ]]; then
+        ALARM_SUFFIX="${line#ALARM_SUFFIX=}"
+    elif [[ "$line" == CREATE_COUNT=* ]]; then
+        CREATE_COUNT="${line#CREATE_COUNT=}"
+    elif [[ "$line" == DELETE_COUNT=* ]]; then
+        DELETE_COUNT="${line#DELETE_COUNT=}"
+    fi
+done < plan.txt
 
 # =====================================================================
 # Alarm Management
@@ -56,7 +69,7 @@ create_alarm() {
         --comparison-operator GreaterThanThreshold \
         --treat-missing-data notBreaching \
         --alarm-actions "$SNS_TOPIC_ARN" \
-        --ok-actions "$SNS_TOPIC_ARN" 2>&1; then
+        --ok-actions "$SNS_TOPIC_ARN" >/dev/null 2>&1; then
         log "✓ Created: $alarm_name"
         return 0
     else
@@ -72,7 +85,7 @@ delete_alarm() {
     
     if aws cloudwatch delete-alarms \
         --region "$AWS_REGION" \
-        --alarm-names "$alarm_name" 2>&1; then
+        --alarm-names "$alarm_name" >/dev/null 2>&1; then
         log "✓ Deleted: $alarm_name"
         return 0
     else
@@ -98,45 +111,56 @@ main() {
     deleted=0
     failed=0
     
-    # Create alarms
-    if [[ "$CREATE_COUNT" -gt 0 ]]; then
-        log "Phase 1: Creating Alarms"
-        log "----------------------------------------"
+    # Parse plan and execute
+    section=""
+    
+    while IFS= read -r line; do
+        # Skip config lines
+        [[ "$line" == REGION=* ]] && continue
+        [[ "$line" == ALARM_SUFFIX=* ]] && continue
+        [[ "$line" == CREATE_COUNT=* ]] && continue
+        [[ "$line" == DELETE_COUNT=* ]] && continue
         
-        while IFS= read -r item; do
-            queue=$(echo "$item" | jq -r '.queue')
-            alarm=$(echo "$item" | jq -r '.alarm')
-            threshold=$(echo "$item" | jq -r '.threshold')
-            
+        # Track sections
+        if [[ "$line" == "---CREATE---" ]]; then
+            section="create"
+            if [[ "$CREATE_COUNT" -gt 0 ]]; then
+                log "Phase 1: Creating Alarms"
+                log "----------------------------------------"
+            fi
+            continue
+        elif [[ "$line" == "---DELETE---" ]]; then
+            section="delete"
+            if [[ "$DELETE_COUNT" -gt 0 ]]; then
+                log ""
+                log "Phase 2: Deleting Orphaned Alarms"
+                log "----------------------------------------"
+            fi
+            continue
+        elif [[ "$line" == "---SUMMARY---" ]]; then
+            break
+        fi
+        
+        # Execute actions
+        if [[ "$section" == "create" && -n "$line" ]]; then
+            # Format: queue|alarm|threshold
+            IFS='|' read -r queue alarm threshold <<< "$line"
             if create_alarm "$queue" "$alarm" "$threshold"; then
                 ((created++))
             else
                 ((failed++))
             fi
-        done < <(echo "$PLAN" | jq -c '.create[]')
-        
-        log ""
-    fi
-    
-    # Delete alarms
-    if [[ "$DELETE_COUNT" -gt 0 ]]; then
-        log "Phase 2: Deleting Orphaned Alarms"
-        log "----------------------------------------"
-        
-        while IFS= read -r alarm; do
-            alarm_name=$(echo "$alarm" | tr -d '"')
-            
-            if delete_alarm "$alarm_name"; then
+        elif [[ "$section" == "delete" && -n "$line" ]]; then
+            # Format: alarm_name
+            if delete_alarm "$line"; then
                 ((deleted++))
             else
                 ((failed++))
             fi
-        done < <(echo "$PLAN" | jq -c '.delete[]')
-        
-        log ""
-    fi
+        fi
+    done < plan.txt
     
-    # Summary
+    log ""
     log "=========================================="
     log "Deployment Complete"
     log "=========================================="

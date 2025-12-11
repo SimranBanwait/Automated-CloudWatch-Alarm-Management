@@ -4,7 +4,8 @@ set -euo pipefail
 # =====================================================================
 # Analysis Script - Build Stage
 # This script analyzes what alarms need to be created or deleted
-# Outputs: plan.json (list of actions to take)
+# Outputs: plan.txt (list of actions to take)
+# NO EXTERNAL DEPENDENCIES - Pure bash only
 # =====================================================================
 
 AWS_REGION="${AWS_REGION:-us-east-1}"
@@ -75,9 +76,14 @@ main() {
         alarm_map["$alarm"]=1
     done
     
-    # Prepare plan
-    create_list=()
-    delete_list=()
+    # Prepare plan file
+    > plan.txt  # Clear file
+    echo "REGION=$AWS_REGION" >> plan.txt
+    echo "ALARM_SUFFIX=$ALARM_SUFFIX" >> plan.txt
+    echo "---CREATE---" >> plan.txt
+    
+    create_count=0
+    delete_count=0
     
     log ""
     log "Analyzing differences..."
@@ -87,51 +93,42 @@ main() {
         expected_alarm="${q}${ALARM_SUFFIX}"
         if [[ -z "${alarm_map[$expected_alarm]:-}" ]]; then
             threshold=$(get_threshold "$q")
-            create_list+=("{\"queue\":\"$q\",\"alarm\":\"$expected_alarm\",\"threshold\":$threshold}")
+            echo "$q|$expected_alarm|$threshold" >> plan.txt
             log "  [CREATE] $expected_alarm (threshold: $threshold)"
+            ((create_count++))
         fi
     done
+    
+    echo "---DELETE---" >> plan.txt
     
     # Find alarms to delete
     for alarm in "${!alarm_map[@]}"; do
         queue="${alarm%$ALARM_SUFFIX}"
         if [[ -z "${queue_map[$queue]:-}" ]]; then
-            delete_list+=("\"$alarm\"")
+            echo "$alarm" >> plan.txt
             log "  [DELETE] $alarm (orphaned)"
+            ((delete_count++))
         fi
     done
     
-    # Generate plan.json
+    echo "---SUMMARY---" >> plan.txt
+    echo "CREATE_COUNT=$create_count" >> plan.txt
+    echo "DELETE_COUNT=$delete_count" >> plan.txt
+    
     log ""
-    log "Generating deployment plan..."
-    
-    cat > plan.json <<EOF
-{
-  "region": "$AWS_REGION",
-  "alarm_suffix": "$ALARM_SUFFIX",
-  "create": [
-    $(IFS=,; echo "${create_list[*]}")
-  ],
-  "delete": [
-    $(IFS=,; echo "${delete_list[*]}")
-  ],
-  "summary": {
-    "to_create": ${#create_list[@]},
-    "to_delete": ${#delete_list[@]}
-  }
-}
-EOF
-    
-    log "Plan saved to plan.json"
+    log "Plan saved to plan.txt"
     log ""
     log "=========================================="
     log "Summary:"
-    log "  Alarms to create: ${#create_list[@]}"
-    log "  Alarms to delete: ${#delete_list[@]}"
+    log "  Alarms to create: $create_count"
+    log "  Alarms to delete: $delete_count"
     log "=========================================="
     
     # Show plan
-    cat plan.json
+    echo ""
+    echo "=== PLAN CONTENTS ==="
+    cat plan.txt
+    echo "=== END PLAN ==="
 }
 
 main

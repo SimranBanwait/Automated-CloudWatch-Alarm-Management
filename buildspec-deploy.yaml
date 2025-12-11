@@ -5,9 +5,9 @@ phases:
     commands:
       - echo "Installing dependencies..."
       - apt-get update -y
-      - apt-get install -y jq
       - echo "AWS CLI version:"
       - aws --version
+      - echo "No third-party packages needed - using pure bash!"
 
   pre_build:
     commands:
@@ -15,13 +15,15 @@ phases:
       - aws sts get-caller-identity
       - echo "Loading deployment plan..."
       - ls -la
-      - cat plan.json
+      - echo "=== Plan contents ==="
+      - cat plan.txt
+      - echo "=== End plan ==="
 
   build:
     commands:
       - echo "Executing deployment..."
-      - chmod +x ./script-deploy.sh
-      - ./script-deploy.sh
+      - chmod +x ./deploy.sh
+      - ./deploy.sh
 
   post_build:
     commands:

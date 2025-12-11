@@ -5,9 +5,9 @@ phases:
     commands:
       - echo "Installing dependencies..."
       - apt-get update -y
-      - apt-get install -y jq
       - echo "AWS CLI version:"
       - aws --version
+      - echo "No third-party packages needed - using pure bash!"
 
   pre_build:
     commands:
@@ -18,16 +18,17 @@ phases:
   build:
     commands:
       - echo "Running analysis script..."
-      - chmod +x ./script-analyze.sh
-      - ./script-analyze.sh
+      - chmod +x ./analyze.sh
+      - ./analyze.sh
 
   post_build:
     commands:
       - echo "Analysis complete!"
       - echo "Plan saved for deploy stage."
+      - ls -la plan.txt
 
 artifacts:
   files:
-    - plan.json
-    - script-deploy.sh
+    - plan.txt
+    - deploy.sh
   name: alarm-plan
