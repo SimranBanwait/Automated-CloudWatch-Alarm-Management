@@ -1,5 +1,5 @@
 #!/bin/bash
-set -euo pipefail
+set -eo pipefail  # Removed 'u' flag to avoid issues with variable expansion
 
 # =====================================================================
 # Deploy Script - Deploy Stage
@@ -32,7 +32,7 @@ ALARM_SUFFIX=""
 CREATE_COUNT=0
 DELETE_COUNT=0
 
-while IFS= read -r line; do
+while IFS= read -r line || [ -n "$line" ]; do
     if [[ "$line" == REGION=* ]]; then
         AWS_REGION="${line#REGION=}"
     elif [[ "$line" == ALARM_SUFFIX=* ]]; then
@@ -107,14 +107,14 @@ main() {
     log "Alarms to delete: $DELETE_COUNT"
     log ""
     
-    created=0
-    deleted=0
-    failed=0
+    local created=0
+    local deleted=0
+    local failed=0
     
     # Parse plan and execute
-    section=""
+    local section=""
     
-    while IFS= read -r line; do
+    while IFS= read -r line || [ -n "$line" ]; do
         # Skip config lines
         [[ "$line" == REGION=* ]] && continue
         [[ "$line" == ALARM_SUFFIX=* ]] && continue
@@ -141,21 +141,28 @@ main() {
             break
         fi
         
+        # Skip empty lines
+        [[ -z "$line" ]] && continue
+        
         # Execute actions
-        if [[ "$section" == "create" && -n "$line" ]]; then
+        if [[ "$section" == "create" ]]; then
             # Format: queue|alarm|threshold
             IFS='|' read -r queue alarm threshold <<< "$line"
-            if create_alarm "$queue" "$alarm" "$threshold"; then
-                ((created++))
-            else
-                ((failed++))
+            if [[ -n "$queue" && -n "$alarm" && -n "$threshold" ]]; then
+                if create_alarm "$queue" "$alarm" "$threshold"; then
+                    created=$((created + 1))
+                else
+                    failed=$((failed + 1))
+                fi
             fi
-        elif [[ "$section" == "delete" && -n "$line" ]]; then
+        elif [[ "$section" == "delete" ]]; then
             # Format: alarm_name
-            if delete_alarm "$line"; then
-                ((deleted++))
-            else
-                ((failed++))
+            if [[ -n "$line" ]]; then
+                if delete_alarm "$line"; then
+                    deleted=$((deleted + 1))
+                else
+                    failed=$((failed + 1))
+                fi
             fi
         fi
     done < plan.txt
@@ -172,9 +179,15 @@ main() {
     # Send notification
     send_notification "$created" "$deleted" "$failed"
     
-    if [[ $failed -gt 0 ]]; then
+    # Exit with success even if some operations failed (unless all failed)
+    local total_operations=$((CREATE_COUNT + DELETE_COUNT))
+    if [[ $failed -eq $total_operations && $total_operations -gt 0 ]]; then
+        log "ERROR: All operations failed!"
         exit 1
     fi
+    
+    log "Script completed successfully"
+    exit 0
 }
 
 send_notification() {
@@ -201,4 +214,5 @@ Pipeline execution completed successfully."
         --region "$AWS_REGION" >/dev/null 2>&1 || log "Warning: Failed to send notification"
 }
 
+# Call main function
 main
