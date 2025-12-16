@@ -1,8 +1,7 @@
 # Automated CloudWatch Alarm Management for SQS Queues
 
 > **Event-driven, manually-controlled alarm management system with email notifications**
-
-![Project Banner](screenshots/banner.png)
+![image alt](https://github.com/SimranBanwait/Alternative-Monitoring-Setup/blob/1254b31ed78edbfbad98c614d624229b47d264ae/assets/4-Setup.png)
 
 ---
 
