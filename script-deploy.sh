@@ -1,11 +1,11 @@
 #!/bin/bash
-set -eo pipefail  # Removed 'u' flag to avoid issues with variable expansion
+set -eo pipefail
 
 # =====================================================================
 # Deploy Script - Deploy Stage
 # This script executes the plan created in the build stage
 # Reads: plan.txt
-# Actions: Creates and deletes CloudWatch alarms
+# Actions: Creates and deletes CloudWatch alarms for SQS queues
 # NO EXTERNAL DEPENDENCIES - Pure bash only
 # =====================================================================
 
@@ -48,19 +48,20 @@ done < plan.txt
 # Alarm Management
 # =====================================================================
 
-create_alarm() {
+create_sqs_alarm() {
     local queue=$1
     local alarm_name=$2
     local threshold=$3
+    local metric=$4
     
-    log "Creating alarm: $alarm_name (threshold: $threshold)"
+    log "Creating SQS alarm: $alarm_name (threshold: $threshold)"
     
     if aws cloudwatch put-metric-alarm \
         --region "$AWS_REGION" \
         --alarm-name "$alarm_name" \
         --alarm-description "Alarm for SQS queue $queue" \
         --namespace "AWS/SQS" \
-        --metric-name "ApproximateNumberOfMessagesVisible" \
+        --metric-name "$metric" \
         --dimensions "Name=QueueName,Value=$queue" \
         --statistic Average \
         --period "$ALARM_PERIOD" \
@@ -110,6 +111,7 @@ main() {
     local created=0
     local deleted=0
     local failed=0
+    local skipped=0
     
     # Parse plan and execute
     local section=""
@@ -146,17 +148,29 @@ main() {
         
         # Execute actions
         if [[ "$section" == "create" ]]; then
-            # Format: queue|alarm|threshold
-            IFS='|' read -r queue alarm threshold <<< "$line"
-            if [[ -n "$queue" && -n "$alarm" && -n "$threshold" ]]; then
-                if create_alarm "$queue" "$alarm" "$threshold"; then
+            # Format: RESOURCE_TYPE|RESOURCE_NAME|ALARM_NAME|THRESHOLD|METRIC
+            IFS='|' read -r resource_type resource_name alarm_name threshold metric <<< "$line"
+            
+            # Validate all fields are present
+            if [[ -z "$resource_type" ]] || [[ -z "$resource_name" ]] || [[ -z "$alarm_name" ]] || [[ -z "$threshold" ]] || [[ -z "$metric" ]]; then
+                log "⚠ Skipping invalid line: $line"
+                continue
+            fi
+            
+            # Only process SQS alarms
+            if [[ "$resource_type" == "SQS" ]]; then
+                if create_sqs_alarm "$resource_name" "$alarm_name" "$threshold" "$metric"; then
                     created=$((created + 1))
                 else
                     failed=$((failed + 1))
                 fi
+            else
+                log "⚠ Skipping non-SQS resource: $resource_type - $resource_name"
+                skipped=$((skipped + 1))
             fi
+            
         elif [[ "$section" == "delete" ]]; then
-            # Format: alarm_name
+            # Format: ALARM_NAME
             if [[ -n "$line" ]]; then
                 if delete_alarm "$line"; then
                     deleted=$((deleted + 1))
@@ -174,10 +188,13 @@ main() {
     log "✓ Alarms created:  $created"
     log "✗ Alarms deleted:  $deleted"
     log "⚠ Failed operations: $failed"
+    if [[ $skipped -gt 0 ]]; then
+        log "→ Skipped (non-SQS): $skipped"
+    fi
     log "=========================================="
     
     # Send notification
-    send_notification "$created" "$deleted" "$failed"
+    send_notification "$created" "$deleted" "$failed" "$skipped"
     
     # Exit with success even if some operations failed (unless all failed)
     local total_operations=$((CREATE_COUNT + DELETE_COUNT))
@@ -194,6 +211,7 @@ send_notification() {
     local created=$1
     local deleted=$2
     local failed=$3
+    local skipped=$4
     
     local message="SQS Alarm Deployment Complete
 
@@ -203,7 +221,14 @@ Timestamp: $(date '+%Y-%m-%d %H:%M:%S')
 Results:
 ✓ Created: $created
 ✗ Deleted: $deleted
-⚠ Failed: $failed
+⚠ Failed: $failed"
+
+    if [[ $skipped -gt 0 ]]; then
+        message+="
+→ Skipped (non-SQS): $skipped"
+    fi
+
+    message+="
 
 Pipeline execution completed successfully."
     
