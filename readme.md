@@ -139,7 +139,8 @@ DEPLOY STAGE: script-deploy.sh
 }
 ```
 
-![SNS Setup](screenshots/sns-topic-create.png)
+![image alt](https://github.com/SimranBanwait/Automated-CloudWatch-Alarm-Management/blob/3e930b408af263823a318459e42a1c077fa72e49/assets/13-SNS-Topic-Used.png)
+
 
 **Test it:**
 ```bash
@@ -200,7 +201,7 @@ aws codepipeline start-pipeline-execution --name sqs-alarm-pipeline --region us-
 Or visit: https://console.aws.amazon.com/codesuite/codepipeline/pipelines/sqs-alarm-pipeline
 ```
 
-![EventBridge Setup](screenshots/eventbridge-rule.png)
+![image alt](https://github.com/SimranBanwait/Automated-CloudWatch-Alarm-Management/blob/3e930b408af263823a318459e42a1c077fa72e49/assets/7-Eventbridge-rule.png)
 
 ---
 
