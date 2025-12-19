@@ -105,7 +105,6 @@ DEPLOY STAGE: script-deploy.sh
 3. Log events: Management events (Read + Write), no data events
 4. Create trail
 
-![CloudTrail Setup](screenshots/cloudtrail-create.png)
 ![image alt](https://github.com/SimranBanwait/Automated-CloudWatch-Alarm-Management/blob/4d3a0424d5ed4af52dcdbcc1761a4b9f3335fd80/assets/6-Cloudtrail.png)
 
 
